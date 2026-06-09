@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>MORNIELOV SPECTOMETER PRO</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;900&display=swap');
+        body { margin: 0; background: radial-gradient(circle, #1a1a2e 0%, #0f0f1a 100%); color: #fff; font-family: 'Orbitron', sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
+        .container { text-align: center; padding: 2rem; border: 2px solid #00f2ff; border-radius: 30px; box-shadow: 0 0 50px rgba(0, 242, 255, 0.2); background: rgba(255, 255, 255, 0.03); backdrop-filter: blur(10px); width: 400px; }
+
+        .data-panel { transition: opacity 0.5s ease; }
+        .hidden { opacity: 0; pointer-events: none; }
+        .progress-bg { height: 10px; background: #333; border-radius: 5px; margin: 15px 0; overflow: hidden; }
+        #progress-bar { height: 100%; width: 0%; background: #00f2ff; transition: width 0.3s; }
+
+        input { background: rgba(255,255,255,0.1); border: 1px solid #555; color: white; padding: 5px; width: 60px; text-align: center; border-radius: 5px; }
+        h1 { color: #00f2ff; font-size: 1rem; text-transform: uppercase; letter-spacing: 2px; }
+        .display { font-size: 4rem; font-weight: 900; margin: 10px 0; }
+        .stats { font-size: 0.8rem; color: #aaa; margin-bottom: 10px; }
+
+        button { cursor: pointer; border: none; transition: 0.3s; }
+        #btn-toggle { padding: 10px 30px; border-radius: 20px; background: #00f2ff; font-weight: bold; margin-top: 10px; }
+        #btn-toggle.paused { background: #ff007f; color: white; }
+        .btn-eye { background: #333; color: white; padding: 5px 10px; border-radius: 5px; font-size: 0.7rem; margin-bottom: 10px; }
+
+        .speed-group { display: flex; justify-content: center; gap: 8px; margin-top: 20px; }
+        .btn-speed { background: transparent; border: 1px solid #444; color: #888; padding: 5px 10px; border-radius: 5px; font-size: 0.7rem; }
+        .btn-speed.active { border-color: #00f2ff; color: #00f2ff; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <button class="btn-eye" onclick="toggleVisibility()">Show/Hide GUI</button>
+
+    <div id="data-panel" class="data-panel">
+        <h1>Mornielov Spectometer</h1>
+        <label>Target (n): <input type="number" id="target-n" value="30"></label>
+        <div class="progress-bg"><div id="progress-bar"></div></div>
+        <div class="display" id="contador">0</div>
+        <div id="status">Iteration: 0</div>
+        <div class="stats" id="stats-text">Z-Score: 0.00 | Rarity: 100%</div>
+    </div>
+
+    <button id="btn-toggle" onclick="toggle()">Start</button>
+
+    <div class="speed-group">
+        <button class="btn-speed" onclick="setSpeed(2000, this)">Slow</button>
+        <button class="btn-speed active" onclick="setSpeed(500, this)">Normal</button>
+        <button class="btn-speed" onclick="setSpeed(100, this)">Fast</button>
+        <button class="btn-speed" onclick="setSpeed(20, this)">Turbo</button>
+    </div>
+</div>
+
+<script id="worker-script" type="application/javascript">
+    self.onmessage = function(e) {
+        if (e.data.type === 'start') {
+            let { contador, iteracion, target, speed } = e.data;
+            const interval = setInterval(() => {
+                iteracion++;
+                contador += (Math.random() >= 0.5) ? 1 : -1;
+
+                const z = Math.abs(contador / Math.sqrt(iteracion));
+                const p = (1 - (0.5 * (1 + Math.erf(z / Math.sqrt(2))))) * 2;
+                const rareza = (p * 100).toFixed(4);
+
+                self.postMessage({contador, iteracion, target, z: z.toFixed(2), rareza});
+
+                if (Math.abs(contador) >= Math.abs(target)) {
+                    clearInterval(interval);
+                    self.postMessage({done: true, iteracion, rareza});
+                }
+            }, speed);
+            self.intervalRef = interval;
+        }
+    };
+    Math.erf = function(x) {
+        const a1 =  0.254829592, a2 = -0.284496736, a3 =  1.421413741, a4 = -1.453152027, a5 =  1.061405429, p = 0.3275911;
+        const sign = (x < 0) ? -1 : 1; x = Math.abs(x);
+        const t = 1.0/(1.0 + p*x);
+        return sign * (1.0 - (((((a5*t + a4)*t) + a3)*t + a2)*t + a1)*t * Math.exp(-x*x));
+    };
+</script>
+
+<script>
+    let worker; let currentSpeed = 500;
+    const blob = new Blob([document.getElementById('worker-script').textContent], {type: 'text/javascript'});
+    const workerUrl = URL.createObjectURL(blob);
+
+    function toggleVisibility() { document.getElementById('data-panel').classList.toggle('hidden'); }
+
+    function setSpeed(ms, btn) {
+        currentSpeed = ms;
+        document.querySelectorAll('.btn-speed').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        if (document.getElementById('btn-toggle').textContent === "Pause") {
+            worker.terminate(); startWorker();
+        }
+    }
+
+    function startWorker() {
+        const target = parseInt(document.getElementById('target-n').value);
+        worker = new Worker(workerUrl);
+        worker.onmessage = (e) => {
+            if (e.data.done) {
+                alert(`Target reached!\nIterations: ${e.data.iteracion}\nOccurrence probability: ${e.data.rareza}%`);
+                location.reload();
+            } else {
+                document.getElementById('contador').textContent = e.data.contador;
+                document.getElementById('status').textContent = `Iteration: ${e.data.iteracion}`;
+                document.getElementById('stats-text').textContent = `Z-Score: ${e.data.z} | Rarity: ${e.data.rareza}%`;
+                const progress = (Math.abs(e.data.contador) / Math.abs(e.data.target)) * 100;
+                document.getElementById('progress-bar').style.width = Math.min(progress, 100) + "%";
+            }
+        };
+        worker.postMessage({type: 'start', contador: 0, iteracion: 0, target, speed: currentSpeed});
+    }
+
+    function toggle() {
+        const btn = document.getElementById('btn-toggle');
+        if (btn.textContent === "Start") {
+            startWorker(); btn.textContent = "Pause"; btn.classList.add('paused');
+        } else {
+            worker.terminate(); btn.textContent = "Start"; btn.classList.remove('paused');
+        }
+    }
+</script>
+</body>
+</html>
